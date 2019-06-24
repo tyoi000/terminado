@@ -26,6 +26,8 @@ except ImportError:
 
 from tornado import gen
 from tornado.ioloop import IOLoop
+import pexpect
+import codecs
 
 ENV_PREFIX = "PYXTERM_"         # Environment variable prefix
 
@@ -161,27 +163,43 @@ class TermManagerBase(object):
 
         return env
 
-    def new_terminal(self, **kwargs):
+    def new_terminal(self, ip_address="", **kwargs):
         """Make a new terminal, return a :class:`PtyWithClients` instance."""
         options = self.term_settings.copy()
         options['shell_command'] = self.shell_command
         options.update(kwargs)
-        argv = options['shell_command']
         env = self.make_term_env(**options)
-        pty = PtyProcessUnicode.spawn(argv, env=env, cwd=options.get('cwd', None))
+        if ip_address == "":
+            argv = options['shell_command']
+            pty = PtyProcessUnicode.spawn(argv, env=env, cwd=options.get('cwd', None))
+        else :
+            argv = 'ssh admin@%s' %(ip_address)
+            pty = pexpect.spawn(argv, env=env, cwd=options.get('cwd', None))
+            ssh_newkey = 'Are you sure you want to continue connecting'
+            i = pty.expect([pexpect.TIMEOUT, ssh_newkey, 'password: '])
+            if i == 0:
+                self.log.info("Connect to server timeout")
+                return None
+            if i == 1:
+                pty.sendline('yes')
+                pty.expect('password: ')
+                i = pty.expect([pexpect.TIMEOUT, 'password: '])
+                if i == 0:
+                    self.log.info('Connect to server timeout')
+                    return None
+            pty.sendline('admin')
         return PtyWithClients(pty)
 
     def start_reading(self, ptywclients):
         """Connect a terminal to the tornado event loop to read data from it."""
-        fd = ptywclients.ptyproc.fd
+        fd = ptywclients.ptyproc.child_fd
         self.ptys_by_fd[fd] = ptywclients
         self.ioloop.add_handler(fd, self.pty_read, self.ioloop.READ)
 
     def on_eof(self, ptywclients):
-        """Called when the pty has closed.
-        """
+        """Called when the pty has closed."""
         # Stop trying to read from that terminal
-        fd = ptywclients.ptyproc.fd
+        fd = ptywclients.ptyproc.child_fd
         self.log.info("EOF on FD %d; stopping reading", fd)
         del self.ptys_by_fd[fd]
         self.ioloop.remove_handler(fd)
@@ -193,7 +211,11 @@ class TermManagerBase(object):
         """Called by the event loop when there is pty data ready to read."""
         ptywclients = self.ptys_by_fd[fd]
         try:
-            s = ptywclients.ptyproc.read(65536)
+            ##ptywclients.ptyproc.expect('#/$',timeout=None)
+            str_bytes = ptywclients.ptyproc.read_nonblocking(65536)
+            self.log.info("Information read from pty origin data is : %s", str_bytes)
+            s=str_bytes.decode('utf-8')
+            self.log.info("Information read from pty is : %s", s)
             ptywclients.read_buffer.append(s)
             for client in ptywclients.clients:
                 client.on_pty_read(s)
@@ -314,9 +336,9 @@ class NamedTermManager(TermManagerBase):
             if name not in self.terminals:
                 return name
 
-    def new_named_terminal(self):
+    def new_named_terminal(self, ip_address):
         name = self._next_available_name()
-        term = self.new_terminal()
+        term = self.new_terminal(ip_address)
         self.log.info("New terminal with automatic name: %s", name)
         term.term_name = name
         self.terminals[name] = term

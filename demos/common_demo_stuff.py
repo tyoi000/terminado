@@ -8,7 +8,7 @@ TEMPLATE_DIR = os.path.join(os.path.dirname(__file__), "templates")
 
 def run_and_show_browser(url, term_manager):
     loop = tornado.ioloop.IOLoop.instance()
-    loop.add_callback(webbrowser.open, url)
+    ##loop.add_callback(webbrowser.open, url)
     try:
         loop.start()
     except KeyboardInterrupt:

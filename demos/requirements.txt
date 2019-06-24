@@ -1,3 +1,5 @@
+codecs
+pexpect
 terminado
 tornado
 tornado-xstatic
