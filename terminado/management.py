@@ -192,14 +192,20 @@ class TermManagerBase(object):
 
     def start_reading(self, ptywclients):
         """Connect a terminal to the tornado event loop to read data from it."""
-        fd = ptywclients.ptyproc.child_fd
+        if hasattr(ptywclients.ptyproc, 'child_fd') :
+            fd = ptywclients.ptyproc.child_fd
+        else :
+            fd = ptywclients.ptyproc.fd
         self.ptys_by_fd[fd] = ptywclients
         self.ioloop.add_handler(fd, self.pty_read, self.ioloop.READ)
 
     def on_eof(self, ptywclients):
         """Called when the pty has closed."""
         # Stop trying to read from that terminal
-        fd = ptywclients.ptyproc.child_fd
+        if hasattr(ptywclients.ptyproc, 'child_fd') :
+            fd = ptywclients.ptyproc.child_fd
+        else :
+            fd = ptywclients.ptyproc.fd
         self.log.info("EOF on FD %d; stopping reading", fd)
         del self.ptys_by_fd[fd]
         self.ioloop.remove_handler(fd)
@@ -212,11 +218,16 @@ class TermManagerBase(object):
         ptywclients = self.ptys_by_fd[fd]
         try:
             ##ptywclients.ptyproc.expect('#/$',timeout=None)
-            str_bytes = ptywclients.ptyproc.read_nonblocking(65536)
-            self.log.info("Information read from pty origin data is : %s", str_bytes)
-            s=str_bytes.decode('utf-8')
-            self.log.info("Information read from pty is : %s", s)
-            ptywclients.read_buffer.append(s)
+            if hasattr(ptywclients.ptyproc, 'child_fd') :
+                str_bytes = ptywclients.ptyproc.read_nonblocking(65536)
+                self.log.info("Information read from pty origin data is : %s", str_bytes)
+                s=str_bytes.decode('utf-8')
+                self.log.info("Information read from pty is : %s", s)
+                ptywclients.read_buffer.append(s)
+            else :
+                s = ptywclients.ptyproc.read(65536);
+                ptywclients.read_buffer.append(s)
+
             for client in ptywclients.clients:
                 client.on_pty_read(s)
         except EOFError:
